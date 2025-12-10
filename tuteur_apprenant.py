@@ -300,127 +300,134 @@ def save_solution_to_excel(solution, filename=EXCEL_FILE):
 # ---------------- Optimisation ----------------
 def optimize_couplage(tuteurs, apprenants, selected_tuteurs=None, selected_apprenants=None, model_holder=None, time_limit=None):
     """
-    Optimise le couplage entre tuteurs et apprenants
+    Optimise le couplage tuteur ↔ apprenant pour MAXIMISER LE NOMBRE DE COUPLES DISTINCTS.
+    - Un tuteur peut être assigné à PLUSIEURS apprenants sur des slots différents
+    - Un apprenant ne peut avoir QU'UN SEUL tuteur
+    - Les paires (jour, heure) sont associées par position
     """
-    # Utiliser les sélections si spécifiées, sinon tous
-    if selected_tuteurs:
-        T = [t for t in selected_tuteurs if t in tuteurs]
-    else:
-        T = list(tuteurs.keys())
+    import gurobipy as gp
+    from gurobipy import GRB
     
-    if selected_apprenants:
-        A = [a for a in selected_apprenants if a in apprenants]
-    else:
-        A = list(apprenants.keys())
+    # Sélection des tuteurs/apprenants
+    T = [t for t in selected_tuteurs if t in tuteurs] if selected_tuteurs else list(tuteurs.keys())
+    A = [a for a in selected_apprenants if a in apprenants] if selected_apprenants else list(apprenants.keys())
     
     if not T or not A:
         return {}
-
-    # (no debug prints)
-
-    # Use module-level normalization helpers: `normalize_day_list`, `normalize_hour_list`
+    
+    # --- Helper : construire les slots exacts (paires associées par position)
+    def build_slots(days, hours):
+        if len(days) == len(hours):
+            # Association directe : jour[i] avec heure[i]
+            return list(zip(days, hours))
+        elif len(hours) == 1:
+            # Une seule heure pour tous les jours
+            return [(d, hours[0]) for d in days]
+        elif len(days) == 1:
+            # Un seul jour pour toutes les heures
+            return [(days[0], h) for h in hours]
+        else:
+            raise ValueError("Impossible de déterminer la correspondance jour-heure")
+    
+    # Construire tous les slots pour tuteurs et apprenants
+    t_slots = {i: set(build_slots(tuteurs[i]["days"], tuteurs[i]["hours"])) for i in T}
+    a_slots = {j: set(build_slots(apprenants[j]["days"], apprenants[j]["hours"])) for j in A}
     
     try:
         model = gp.Model("Couplage")
-        # expose model to caller if requested (allows abort)
         if isinstance(model_holder, dict):
             model_holder['model'] = model
-        # set time limit if provided
         if time_limit is not None:
-            try:
-                model.setParam('TimeLimit', float(time_limit))
-            except Exception:
-                pass
-        x = {}
+            model.setParam('TimeLimit', float(time_limit))
         
-        # Création de toutes les variables
+        # --- Variables ---
+        # x[i,j,slot] : tuteur i avec apprenant j sur slot
+        x = {}
+        # y[i,j] : 1 si le couple (i,j) existe (au moins un slot), 0 sinon
+        y = {}
+        
         for i in T:
             for j in A:
-                x[i, j] = model.addVar(vtype=GRB.BINARY, name=f"x_{i}_{j}")
+                if tuteurs[i]["domain"].strip().lower() != apprenants[j]["domain"].strip().lower():
+                    continue
+                
+                common_slots = t_slots[i].intersection(a_slots[j])
+                if not common_slots:
+                    continue
+                
+                # Variable de couple
+                y[i, j] = model.addVar(vtype=GRB.BINARY, name=f"y_{i}_{j}")
+                
+                # Variables de slots
+                for slot in common_slots:
+                    x[i, j, slot] = model.addVar(vtype=GRB.BINARY, name=f"x_{i}_{j}_{slot}")
         
         model.update()
         
-        # Contrainte 1: Chaque tuteur peut être couplé avec au plus 1 apprenant
-        for i in T:
-            model.addConstr(gp.quicksum(x[i, j] for j in A) <= 1, name=f"cap_tuteur_{i}")
-        
-        # Contrainte 2: Chaque apprenant peut être couplé avec au plus 1 tuteur
+        # --- Contraintes ---
+        # 1️⃣ Chaque slot d'un apprenant ne peut être pris qu'une seule fois
         for j in A:
-            model.addConstr(gp.quicksum(x[i, j] for i in T) <= 1, name=f"cap_apprenant_{j}")
+            slots_j = set(slot for (i2, j2, slot) in x if j2 == j)
+            for slot in slots_j:
+                model.addConstr(
+                    gp.quicksum(x[i, j, slot] for i in T if (i, j, slot) in x) <= 1,
+                    name=f"apprenant_{j}_{slot}"
+                )
         
-        # Contraintes de compatibilité
-        incompat_count = 0
+        # 2️⃣ Chaque tuteur peut utiliser un slot une seule fois
         for i in T:
-            for j in A:
-                # Vérifier la compatibilité
-                domain_match = tuteurs[i]["domain"].strip().lower() == apprenants[j]["domain"].strip().lower()
-
-                # Nettoyer les jours et heures
-                raw_t_days = tuteurs[i]["days"]
-                raw_a_days = apprenants[j]["days"]
-                raw_t_hours = tuteurs[i]["hours"]
-                raw_a_hours = apprenants[j]["hours"]
-                # (no debug prints of raw lists)
-
-                # Normalize days and hours for robust matching
-                t_days = normalize_day_list(raw_t_days)
-                a_days = normalize_day_list(raw_a_days)
-                t_hours = normalize_hour_list(raw_t_hours)
-                a_hours = normalize_hour_list(raw_a_hours)
-
-                days_common = t_days.intersection(a_days)
-                hours_common = t_hours.intersection(a_hours)
-                # (no debug prints of compatibility)
-
-                # Si incompatible, forcer la variable à 0
-                if not (domain_match and days_common and hours_common):
-                    model.addConstr(x[i, j] == 0, name=f"incompat_{i}_{j}")
-                    incompat_count += 1
-
-        # (no debug prints of incompatibility counts)
+            slots_i = set(slot for (i2, j, slot) in x if i2 == i)
+            for slot in slots_i:
+                model.addConstr(
+                    gp.quicksum(x[i, j, slot] for j in A if (i, j, slot) in x) <= 1,
+                    name=f"tuteur_{i}_{slot}"
+                )
         
-        # Objectif : maximiser le nombre de couplages
-        model.setObjective(gp.quicksum(x[i, j] for i in T for j in A), GRB.MAXIMIZE)
+        # 3️⃣ Si y[i,j] = 1, alors au moins un slot doit être assigné
+        for (i, j) in y:
+            model.addConstr(
+                gp.quicksum(x[i, j, slot] for slot in t_slots[i].intersection(a_slots[j]) if (i, j, slot) in x) >= y[i, j],
+                name=f"couple_{i}_{j}"
+            )
         
-        # Résolution
-        model.setParam('OutputFlag', 0)  # Désactiver la sortie console
+        # 4️⃣ Chaque apprenant peut être couplé avec au plus un tuteur
+        for j in A:
+            model.addConstr(
+                gp.quicksum(y[i, j] for i in T if (i, j) in y) <= 1,
+                name=f"apprenant_unique_{j}"
+            )
+        
+        # 🎯 Objectif : maximiser le NOMBRE DE COUPLES DISTINCTS
+        model.setObjective(gp.quicksum(y.values()), GRB.MAXIMIZE)
+        
+        # Optimisation
+        model.setParam('OutputFlag', 0)
         model.optimize()
         
+        # --- Construction de la solution ---
         solution = {}
-        
-        if model.status == GRB.OPTIMAL:
-            for i in T:
-                solution[i] = []
-                for j in A:
-                    if x[i, j].X > 0.5:  # Si le couplage est sélectionné
-                        # Use normalized day/hour lists for display so table shows common slotsf
-                        try:
-                            norm_t_days = normalize_day_list(tuteurs[i]["days"])
-                            norm_a_days = normalize_day_list(apprenants[j]["days"])
-                            days_common = sorted(list(norm_t_days.intersection(norm_a_days)))
-                        except Exception:
-                            days_common = list(set([d.strip() for d in tuteurs[i]["days"]])
-                                               .intersection([d.strip() for d in apprenants[j]["days"]]))
-                        try:
-                            norm_t_hours = normalize_hour_list(tuteurs[i]["hours"])
-                            norm_a_hours = normalize_hour_list(apprenants[j]["hours"])
-                            hours_common = sorted(list(norm_t_hours.intersection(norm_a_hours)))
-                        except Exception:
-                            hours_common = list(set([h.strip() for h in tuteurs[i]["hours"]])
-                                                .intersection([h.strip() for h in apprenants[j]["hours"]]))
-
+        if model.status == GRB.OPTIMAL or model.status == GRB.TIME_LIMIT:
+            for (i, j, slot), var in x.items():
+                if var.X > 0.5:
+                    if i not in solution:
+                        solution[i] = []
+                    # Vérifier si l'apprenant est déjà dans la liste
+                    existing = [entry for entry in solution[i] if entry[0] == j]
+                    if existing:
+                        # Ajouter le slot au couple existant
+                        existing[0][1]["days"].append(slot[0])
+                        existing[0][1]["hours"].append(slot[1])
+                    else:
+                        # Créer un nouveau couple
                         solution[i].append((j, {
                             "domain": tuteurs[i]["domain"],
-                            "days": days_common,
-                            "hours": hours_common
+                            "days": [slot[0]],
+                            "hours": [slot[1]]
                         }))
         
-        # (no debug prints of solver status or variable values)
-
         return solution
-
+    
     except gp.GurobiError as e:
-        # Ne pas appeler de dialogues GUI depuis un thread de calcul; remonter l'erreur
         print(f"Erreur Gurobi: {e}")
         raise
     except Exception as e:
@@ -1024,13 +1031,13 @@ class CouplageWindow(QMainWindow):
             QMessageBox.warning(self, "Erreur", "Le domaine doit contenir des lettres")
             return
         
-        # Saisie des jours
+        # Normalisation et validation
         days_str, ok2 = QInputDialog.getText(self, "Jours", "Jours disponibles:", text=", ".join(current_info["days"]))
         if not ok2:
             days_str = ", ".join(current_info["days"])
-        
-        days = [d.strip() for d in days_str.split(",") if d.strip()]
-        # Dictionnaire pour normaliser les jours
+
+        days_input = [d.strip() for d in days_str.split(",") if d.strip()]
+
         day_mapping = {
             "mon": "Mon", "monday": "Monday",
             "tue": "Tue", "tuesday": "Tuesday",
@@ -1048,10 +1055,9 @@ class CouplageWindow(QMainWindow):
             "dim": "Dim", "dimanche": "Dimanche"
         }
 
-        # Validation et normalisation
         normalized_days = []
-        for day in days:
-            key = day.strip().lower()
+        for day in days_input:
+            key = day.lower()
             if key not in day_mapping:
                 QMessageBox.warning(self, "Erreur", 
                                     f"Jour invalide: '{day}'. Jours acceptés:\n"
@@ -1060,25 +1066,9 @@ class CouplageWindow(QMainWindow):
                 return
             normalized_days.append(day_mapping[key])
 
-        # Ensuite, tu remplaces days par normalized_days
+        # À ce stade, normalized_days contient déjà des valeurs correctes
         days = normalized_days
 
-        
-        # Validation immédiate des jours
-        if days:
-            valid_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
-                        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
-                        "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim",
-                        "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-            
-            for day in days:
-                if day not in valid_days:
-                    QMessageBox.warning(self, "Erreur", 
-                                        f"Jour invalide: '{day}'. Jours acceptés:\n"
-                                        f"Anglais: Mon, Tue, Wed, Thu, Fri, Sat, Sun\n"
-                                        f"Français: Lun, Mar, Mer, Jeu, Ven, Sam, Dim")
-                    return
-        
         # Saisie des heures
         hours_str, ok3 = QInputDialog.getText(self, "Heures", "Heures disponibles:", text=", ".join(current_info["hours"]))
         if not ok3:
@@ -1169,14 +1159,18 @@ class CouplageWindow(QMainWindow):
             QMessageBox.warning(self, "Erreur", "Le domaine doit contenir des lettres")
             return
         
-        # --- Saisie des jours ---
-        days_str, ok2 = QInputDialog.getText(self, "Jours", "Jours disponibles (séparés par des virgules, ex: Mon,Wed,Fri):")
+       # --- Saisie et normalisation des jours ---
+        days_str, ok2 = QInputDialog.getText(
+            self,
+            "Jours",
+            "Jours disponibles (ex: Mon, Wed):",
+            text=""  # pas de current_info ici
+        )
         if not ok2:
             days_str = ""
-        
+
         days = [d.strip() for d in days_str.split(",") if d.strip()]
-        
-        # --- Normalisation et validation des jours ---
+
         day_mapping = {
             "mon": "Mon", "monday": "Monday",
             "tue": "Tue", "tuesday": "Tuesday",
@@ -1201,7 +1195,9 @@ class CouplageWindow(QMainWindow):
                 QMessageBox.warning(self, "Erreur", f"Jour invalide: '{day}'.")
                 return
             normalized_days.append(day_mapping[key])
-        days = normalized_days  # remplacer par jours normalisés
+
+        days = normalized_days
+
         
         # --- Saisie des heures ---
         hours_str, ok3 = QInputDialog.getText(self, "Heures", "Heures disponibles (séparées par des virgules, ex: 9-10,14-15):")
@@ -1352,27 +1348,36 @@ class CouplageWindow(QMainWindow):
             QMessageBox.information(self, "Succès", f"Tuteur {t} supprimé avec succès!")
 
     def import_from_excel(self):
-        # Let user pick an Excel file, then ask to Replace or Merge
+        # Sélection du fichier
         fname, _ = QFileDialog.getOpenFileName(self, "Importer depuis Excel", "", "Excel Files (*.xlsx *.xls);;All Files (*)")
         if not fname:
             return
 
         try:
             t_loaded, a_loaded = load_from_excel(fname)
+            # Vérifier le type pour éviter erreurs silencieuses
+            if not isinstance(t_loaded, dict) or not isinstance(a_loaded, dict):
+                QMessageBox.critical(self, "Erreur", "Le fichier Excel doit contenir des dictionnaires de tuteurs et apprenants.")
+                return
         except Exception as e:
             QMessageBox.critical(self, "Erreur", f"Impossible de charger le fichier Excel:\n{e}")
             return
 
-        # Ask user whether to replace or merge
-        reply = QMessageBox.question(self, "Importer Excel",
-                                     "Remplacer les données actuelles par celles du fichier ?\n'Yes' = Remplacer, 'No' = Fusionner (ajouter manquants)",
-                                     QMessageBox.Yes | QMessageBox.No)
+        # Demande à l'utilisateur de remplacer ou fusionner
+        reply = QMessageBox.question(
+            self, "Importer Excel",
+            "Remplacer les données actuelles par celles du fichier ?\nYes = Remplacer, No = Fusionner (ajouter manquants)",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
         if reply == QMessageBox.Yes:
-            # Replace
-            self.tuteurs = t_loaded
-            self.apprenants = a_loaded
+            # Remplacer
+            self.tuteurs.clear()
+            self.apprenants.clear()
+            self.tuteurs.update(t_loaded)
+            self.apprenants.update(a_loaded)
         else:
-            # Merge: add missing entries but don't overwrite existing
+            # Fusionner sans écraser
             for k, v in t_loaded.items():
                 if k not in self.tuteurs:
                     self.tuteurs[k] = v
@@ -1380,16 +1385,18 @@ class CouplageWindow(QMainWindow):
                 if k not in self.apprenants:
                     self.apprenants[k] = v
 
-        # Save merged/replaced data back to default Excel file
+        # Sauvegarde (optionnelle)
         try:
             save_to_excel(self.tuteurs, self.apprenants)
         except Exception:
             pass
 
-        # Refresh UI
+        # Rafraîchir l'UI
         self.refresh_apprenant_checkboxes()
         self.refresh_tuteur_checkboxes()
-        QMessageBox.information(self, "Importation", "Importation terminée.")
+
+        QMessageBox.information(self, "Importation", f"Importation terminée. {len(t_loaded)} tuteurs et {len(a_loaded)} apprenants chargés.")
+
 
     # ---------------- Optimisation ----------------
     def run_optimization(self):
