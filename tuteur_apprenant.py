@@ -239,42 +239,89 @@ def save_to_excel(tuteurs, apprenants, filename=EXCEL_FILE):
         df_app.to_excel(writer, sheet_name="Apprenants", index=False)
 
 def load_from_excel(filename=EXCEL_FILE):
+    """Charge les données depuis un fichier Excel"""
     if not Path(filename).exists():
         save_to_excel(DEFAULT_TUTEURS, DEFAULT_APPRENANTS)
         return DEFAULT_TUTEURS.copy(), DEFAULT_APPRENANTS.copy()
-    xls = pd.ExcelFile(filename)
-    df_tut = pd.read_excel(xls, sheet_name="Tuteurs")
-    df_app = pd.read_excel(xls, sheet_name="Apprenants")
-    tuteurs = {}
-    for row in df_tut.values:
-        if pd.notna(row[0]):  # Vérifier si le nom n'est pas NaN
-            tuteurs[str(row[0])] = {
-                "domain": normalize_domain(row[1]) if pd.notna(row[1]) else "",
-                "days": str(row[2]).split(",") if pd.notna(row[2]) else [],
-                "hours": str(row[3]).split(",") if pd.notna(row[3]) else []
-            }
     
-    apprenants = {}
-    for row in df_app.values:
-        if pd.notna(row[0]):  # Vérifier si le nom n'est pas NaN
-            apprenants[str(row[0])] = {
-                "domain": normalize_domain(row[1]) if pd.notna(row[1]) else "",
-                "days": str(row[2]).split(",") if pd.notna(row[2]) else [],
-                "hours": str(row[3]).split(",") if pd.notna(row[3]) else []
+    try:
+        xls = pd.ExcelFile(filename)
+        # Vérifier que les feuilles existent
+        if "Tuteurs" not in xls.sheet_names or "Apprenants" not in xls.sheet_names:
+            raise ValueError("Le fichier Excel doit contenir les feuilles 'Tuteurs' et 'Apprenants'")
+            
+        df_tut = pd.read_excel(xls, sheet_name="Tuteurs")
+        df_app = pd.read_excel(xls, sheet_name="Apprenants")
+        
+        # Vérifier que les DataFrames ne sont pas vides
+        if df_tut.empty or df_app.empty:
+            raise ValueError("Les feuilles Excel sont vides")
+            
+        # Vérifier les colonnes nécessaires
+        if len(df_tut.columns) < 1 or len(df_app.columns) < 1:
+            raise ValueError("Format de fichier incorrect. Les feuilles doivent avoir au moins 1 colonne")
+            
+        tuteurs = {}
+        for index, row in df_tut.iterrows():
+            # Ignorer les lignes vides
+            if pd.isna(row[0]) or str(row[0]).strip() == "":
+                continue
+                
+            name = str(row[0]).strip()
+            domain = normalize_domain(row[1]) if pd.notna(row[1]) else ""
+            
+            # Gestion des jours
+            if pd.notna(row[2]):
+                days = [d.strip() for d in str(row[2]).split(",") if d.strip()]
+            else:
+                days = []
+                
+            # Gestion des heures
+            if pd.notna(row[3]):
+                hours = [h.strip() for h in str(row[3]).split(",") if h.strip()]
+            else:
+                hours = []
+                
+            tuteurs[name] = {
+                "domain": domain,
+                "days": days,
+                "hours": hours
             }
-    # If file is missing some defaults (corrupted or partial), merge missing default entries
-    for k, v in DEFAULT_TUTEURS.items():
-        if k not in tuteurs:
-            t = v.copy()
-            t["domain"] = normalize_domain(t.get("domain", ""))
-            tuteurs[k] = t
-    for k, v in DEFAULT_APPRENANTS.items():
-        if k not in apprenants:
-            a = v.copy()
-            a["domain"] = normalize_domain(a.get("domain", ""))
-            apprenants[k] = a
+        
+        apprenants = {}
+        for index, row in df_app.iterrows():
+            # Ignorer les lignes vides
+            if pd.isna(row[0]) or str(row[0]).strip() == "":
+                continue
+                
+            name = str(row[0]).strip()
+            domain = normalize_domain(row[1]) if pd.notna(row[1]) else ""
+            
+            # Gestion des jours
+            if pd.notna(row[2]):
+                days = [d.strip() for d in str(row[2]).split(",") if d.strip()]
+            else:
+                days = []
+                
+            # Gestion des heures
+            if pd.notna(row[3]):
+                hours = [h.strip() for h in str(row[3]).split(",") if h.strip()]
+            else:
+                hours = []
+                
+            apprenants[name] = {
+                "domain": domain,
+                "days": days,
+                "hours": hours
+            }
+            
+        print(f"DEBUG: Chargé {len(tuteurs)} tuteurs et {len(apprenants)} apprenants")
+        return tuteurs, apprenants
+        
+    except Exception as e:
+        print(f"ERREUR lors du chargement Excel: {e}")
+        raise
 
-    return tuteurs, apprenants
 
 def save_solution_to_excel(solution, filename=EXCEL_FILE):
     rows = []
@@ -1348,55 +1395,103 @@ class CouplageWindow(QMainWindow):
             QMessageBox.information(self, "Succès", f"Tuteur {t} supprimé avec succès!")
 
     def import_from_excel(self):
-        # Sélection du fichier
-        fname, _ = QFileDialog.getOpenFileName(self, "Importer depuis Excel", "", "Excel Files (*.xlsx *.xls);;All Files (*)")
+        """Importe les données depuis un fichier Excel sélectionné"""
+        fname, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Importer depuis Excel", 
+            "", 
+            "Excel Files (*.xlsx *.xls);;All Files (*)"
+        )
+        
         if not fname:
             return
-
+        
         try:
+            # Tenter de charger le fichier
             t_loaded, a_loaded = load_from_excel(fname)
-            # Vérifier le type pour éviter erreurs silencieuses
-            if not isinstance(t_loaded, dict) or not isinstance(a_loaded, dict):
-                QMessageBox.critical(self, "Erreur", "Le fichier Excel doit contenir des dictionnaires de tuteurs et apprenants.")
+            
+            # Validation des données chargées
+            if not t_loaded and not a_loaded:
+                QMessageBox.warning(self, "Avertissement", 
+                                "Le fichier Excel ne contient aucune donnée valide.")
                 return
+                
+            # Vérifier le format
+            if not isinstance(t_loaded, dict) or not isinstance(a_loaded, dict):
+                QMessageBox.critical(self, "Erreur", 
+                                "Format de données incorrect dans le fichier.")
+                return
+            
+            # Demander confirmation à l'utilisateur
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Importer Excel")
+            msg.setText(f"Fichier: {Path(fname).name}\n"
+                    f"Contient: {len(t_loaded)} tuteurs et {len(a_loaded)} apprenants\n\n"
+                    "Que voulez-vous faire ?")
+            msg.setStandardButtons(
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
+            )
+            msg.button(QMessageBox.Yes).setText("Remplacer")
+            msg.button(QMessageBox.No).setText("Fusionner")
+            msg.button(QMessageBox.Cancel).setText("Annuler")
+            
+            reply = msg.exec_()
+            
+            if reply == QMessageBox.Cancel:
+                return
+            elif reply == QMessageBox.Yes:
+                # Remplacer toutes les données
+                self.tuteurs = t_loaded.copy()
+                self.apprenants = a_loaded.copy()
+                action = "remplacées"
+            else:
+                # Fusionner les données (ajouter sans écraser)
+                count_tut = 0
+                count_app = 0
+                
+                for k, v in t_loaded.items():
+                    if k not in self.tuteurs:
+                        self.tuteurs[k] = v
+                        count_tut += 1
+                
+                for k, v in a_loaded.items():
+                    if k not in self.apprenants:
+                        self.apprenants[k] = v
+                        count_app += 1
+                
+                action = f"fusionnées ({count_tut} nouveaux tuteurs, {count_app} nouveaux apprenants)"
+            
+            # Rafraîchir l'interface
+            self.refresh_apprenant_checkboxes()
+            self.refresh_tuteur_checkboxes()
+            
+            # Afficher un message de confirmation
+            QMessageBox.information(
+                self, 
+                "Importation réussie",
+                f"Données {action} avec succès.\n"
+                f"Total tuteurs: {len(self.tuteurs)}\n"
+                f"Total apprenants: {len(self.apprenants)}"
+            )
+            
+            # Sauvegarder automatiquement
+            try:
+                save_to_excel(self.tuteurs, self.apprenants)
+            except Exception as e:
+                QMessageBox.warning(self, "Sauvegarde", 
+                                f"Importation réussie mais erreur lors de la sauvegarde: {e}")
+        
         except Exception as e:
-            QMessageBox.critical(self, "Erreur", f"Impossible de charger le fichier Excel:\n{e}")
-            return
-
-        # Demande à l'utilisateur de remplacer ou fusionner
-        reply = QMessageBox.question(
-            self, "Importer Excel",
-            "Remplacer les données actuelles par celles du fichier ?\nYes = Remplacer, No = Fusionner (ajouter manquants)",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            # Remplacer
-            self.tuteurs.clear()
-            self.apprenants.clear()
-            self.tuteurs.update(t_loaded)
-            self.apprenants.update(a_loaded)
-        else:
-            # Fusionner sans écraser
-            for k, v in t_loaded.items():
-                if k not in self.tuteurs:
-                    self.tuteurs[k] = v
-            for k, v in a_loaded.items():
-                if k not in self.apprenants:
-                    self.apprenants[k] = v
-
-        # Sauvegarde (optionnelle)
-        try:
-            save_to_excel(self.tuteurs, self.apprenants)
-        except Exception:
-            pass
-
-        # Rafraîchir l'UI
-        self.refresh_apprenant_checkboxes()
-        self.refresh_tuteur_checkboxes()
-
-        QMessageBox.information(self, "Importation", f"Importation terminée. {len(t_loaded)} tuteurs et {len(a_loaded)} apprenants chargés.")
-
+            QMessageBox.critical(
+                self, 
+                "Erreur d'importation",
+                f"Impossible de charger le fichier Excel:\n{str(e)}"
+            )
+            # Afficher plus de détails pour le débogage
+            import traceback
+            print("Traceback complet:")
+            print(traceback.format_exc())
 
     # ---------------- Optimisation ----------------
     def run_optimization(self):
