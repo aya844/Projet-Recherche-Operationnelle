@@ -1,0 +1,64 @@
+# ====================================================================================
+#   EXIGENCES DES ENTRÉES POUR L’INTERFACE IHM DU PROJET D’OPTIMISATION DU TRANSPORT D’ORGANES
+# ====================================================================================
+
+[1] NŒUDS (nodes.csv)
+----------------------
+# Champs à saisir par l’utilisateur :
+
+id                : (texte) Identifiant unique du nœud (ex : H1, D1, C1)
+type              : (texte, obligatoire) Rôle du nœud dans le réseau :
+                     - "source"       : hôpital donneur, fournit des organes (offre > 0)
+                     - "intermediaire": dépôt / hub de tri, nœud de transit (offre = 0)
+                     - "destination"  : centre de chirurgie, consomme des organes (demande < 0)
+offre_demande     : (entier relatif) Quantité d’organes fournie (positive) ou demandée (négative)
+                     Exemples :
+                     - source → offre_demande = +3
+                     - destination → offre_demande = -2
+                     - intermediaire → offre_demande = 0
+name              : (texte) Nom descriptif du nœud
+                     Exemple : "Hôpital La Timone"
+
+Description :
+Définit les nœuds du réseau logistique avec leur type et le nombre d’organes qu’ils fournissent ou demandent.
+
+----------------------------------------------
+
+[2] ARCS (arcs.csv)
+-------------------
+# Champs à saisir par l’utilisateur :
+
+origin            : (texte) ID du nœud d’origine
+dest              : (texte) ID du nœud de destination
+cost              : (nombre réel) Coût monétaire par organe transporté
+time              : (nombre réel) Temps de transport (minutes ou heures)
+capacity          : (nombre réel) Capacité maximale d’organes transportables sur cet arc
+cap_cost          : (nombre réel) Coût pour augmenter la capacité si nécessaire
+
+Description :
+Définit tous les arcs possibles, leurs coûts, temps de transport et capacités maximales.
+
+----------------------------------------------
+
+[3] PARAMÈTRES (params.csv)
+---------------------------
+# Champs à saisir par l’utilisateur :
+
+alpha             : (nombre réel) Poids de l’objectif coût dans le PL
+beta              : (nombre réel) Poids de l’objectif temps dans le PL
+
+Description :
+Permet de combiner coût et temps dans une seule fonction objectif linéaire.
+- alpha élevé → priorité à l’économie
+- beta élevé → priorité à la rapidité de livraison
+
+----------------------------------------------
+
+[4] NOTES
+---------
+- Tous les champs numériques doivent être strictement numériques.
+- La somme des offres des sources doit être égale à la somme des demandes des destinations pour que le PL soit faisable.
+- Les types de nœuds doivent être exactement : "source", "intermediaire" ou "destination".
+- Les nœuds intermediaires doivent avoir offre_demande = 0.
+- L’IHM écrira ces valeurs dans les fichiers CSV utilisés par le solveur PL Gurobi.
+- Vérifier qu’aucune cellule requise n’est vide.

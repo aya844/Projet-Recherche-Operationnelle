@@ -1,0 +1,21 @@
+# Requirements for Projet_RO
+# NOTE: Gurobi must be installed separately and requires a valid license. The
+# `gurobipy` package is often provided by the Gurobi installer and may not be
+# available via plain pip install on all systems.
+
+# Core dependencies inferred from imports in the project
+pandas>=1.5,<3
+numpy>=1.22,<2
+networkx>=2.6,<4
+matplotlib>=3.5,<4
+PyQt6>=6.5,<7
+
+# Gurobi Python interface (Gurobi solver)
+# If you have Gurobi installed, installing `gurobipy` via pip might work with
+# a pre-built wheel provided by Gurobi. If not, follow Gurobi's documentation
+# to install (https://www.gurobi.com/documentation/).
+gurobipy>=9.5
+
+# Optional: include direct installs used by Matplotlib/Pandas if needed
+# openpyxl  # only needed if reading/writing excel files
+# pillow   # if image handling in GUI becomes needed
