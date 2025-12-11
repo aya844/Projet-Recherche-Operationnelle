@@ -1,0 +1,18 @@
+# Format: "node weight" (node weight entry) or "node1 node2" (edge)
+A 5
+B 3
+C 4
+D 2
+E 1
+F 2
+G 3
+H 2
+A B
+A C
+B D
+C D
+D E
+F G
+E F
+G H
+H A 

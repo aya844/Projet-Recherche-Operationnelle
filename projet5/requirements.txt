@@ -1,0 +1,5 @@
+PyQt5>=5.15
+networkx>=2.8
+matplotlib>=3.4
+# gurobipy is a Gurobi-provided package and is not available via pip; install Gurobi separately.
+# If you do not have Gurobi, the application will fall back to a greedy approximation.

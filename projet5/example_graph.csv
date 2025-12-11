@@ -1,0 +1,20 @@
+# Example graph CSV: node weights and edges
+# Two columns where first is numeric: node weight
+# Two columns where second is non-numeric: edge
+A,5
+B,3
+C,4
+D,2
+E,1
+F,2
+G,3
+H,2
+A,B
+A,C
+B,D
+C,D
+D,E
+F,G
+E,F
+G,H
+H,A
