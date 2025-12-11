@@ -1,0 +1,12 @@
+#interface graphique
+PyQt5==5.15.7
+
+#solveur Gurobi
+gurobipy>=10.0.0
+
+#Visualisation graphique
+matplotlib==3.7.2
+
+#Gestion des données et tables
+pandas>=2.1.0
+numpy>=1.26.0
