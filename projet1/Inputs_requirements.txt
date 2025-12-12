@@ -12,6 +12,7 @@ type              : (texte, obligatoire) Rôle du nœud dans le réseau :
                      - "intermediaire": dépôt / hub de tri, nœud de transit (offre = 0)
                      - "destination"  : centre de chirurgie, consomme des organes (demande < 0)
 offre_demande     : (entier relatif) Quantité d’organes fournie (positive) ou demandée (négative)
+ou supply_<organ> : (nombre réel) Si vous gérez plusieurs types d'organes, ajoutez une colonne supply_<organName> par type.
                      Exemples :
                      - source → offre_demande = +3
                      - destination → offre_demande = -2
@@ -33,7 +34,9 @@ dest              : (texte) ID du nœud de destination
 cost              : (nombre réel) Coût monétaire par organe transporté
 time              : (nombre réel) Temps de transport (minutes ou heures)
 capacity          : (nombre réel) Capacité maximale d’organes transportables sur cet arc
-cap_cost          : (nombre réel) Coût pour augmenter la capacité si nécessaire
+cap_cost          : (nombre réel) Coût par véhicule (ou unité de capacité) additionnel
+cost_<organ>      : (nombre réel, optionnel) Coût monétaire par organ transporté par type d'organe
+time_<organ>      : (nombre réel, optionnel) Temps de transport par type d'organe
 
 Description :
 Définit tous les arcs possibles, leurs coûts, temps de transport et capacités maximales.
@@ -46,6 +49,8 @@ Définit tous les arcs possibles, leurs coûts, temps de transport et capacités
 
 alpha             : (nombre réel) Poids de l’objectif coût dans le PL
 beta              : (nombre réel) Poids de l’objectif temps dans le PL
+vehicle_capacity  : (nombre réel, optionnel) Capacité d’un véhicule additionnel (V). Par défaut 1.0
+organs            : (texte, optionnel) Liste séparée par des virgules des noms d'organes (ex: "heart,kidney")
 
 Description :
 Permet de combiner coût et temps dans une seule fonction objectif linéaire.
