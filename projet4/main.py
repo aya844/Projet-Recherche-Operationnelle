@@ -40,9 +40,19 @@ class CityItem(QGraphicsEllipseItem):
     def __init__(self, x, y, name, radius=22):
         super().__init__(-radius, -radius, 2*radius, 2*radius)
         self.setPos(x, y)
+
         self.name = name
         self.radius = radius
-        
+        self.project_descriptions = {
+    "projet2": """
+    Projet : Capacité de réseau
+    Objectif : Déterminer l’augmentation de capacité nécessaire
+               pour supporter le trafic futur tout en minimisant le coût.
+    Méthodes : Programmation linéaire + Gurobi.
+    Résultat : retourne pour chaque lien la capacité à augmenter.
+    """
+}
+
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable | 
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
@@ -450,6 +460,7 @@ class MainWindow(QMainWindow):
         btn("📋 Table", self.show_table)
         btn("💾 Save", self.save_topology)
         btn("📂 Load", self.load_topology)
+        btn("📤 Export Demands", self.export_demands)
         
         # Group for mode buttons
         self.mode_actions = [self.act_select, self.act_city, self.act_link]
@@ -526,19 +537,22 @@ class MainWindow(QMainWindow):
         return c
 
     def load_topology(self):
-        fn, _ = QFileDialog.getOpenFileName(self, "Load", "", "CSV (*.csv)")
+        # Default to map2.csv
+        fn, _ = QFileDialog.getOpenFileName(self, "Load Map", "map2.csv", "CSV (*.csv)")
         if not fn: return
+        if not solveur:
+             QMessageBox.critical(self, "Error", "Solver module missing.")
+             return
         try:
             self.scene.clear()
             self.scene.city_counter = 1
-            with open(fn, 'r') as f:
-                reader = csv.reader(f)
-                next(reader, None)
-                for row in reader:
-                    if len(row) >= 4:
-                        u, v, cap, cost = row[0], row[1], float(row[2]), float(row[3])
-                        c1, c2 = self.find_city(u), self.find_city(v)
-                        self.scene.addItem(LinkItem(c1, c2, cap, cost))
+            
+            edges = solveur.read_map(fn)
+            for u, v, cap, cost in edges:
+                c1 = self.find_city(u)
+                c2 = self.find_city(v)
+                self.scene.addItem(LinkItem(c1, c2, cap, cost))
+                
             QMessageBox.information(self, "Success", "Map Loaded.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -554,6 +568,42 @@ class MainWindow(QMainWindow):
                     if isinstance(i, LinkItem):
                         w.writerow([i.city1.name, i.city2.name, i.base_capacity, i.cost])
             QMessageBox.information(self, "Success", "Topology Saved.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def export_demands(self):
+        fn, _ = QFileDialog.getSaveFileName(self, "Export Demands", "", "CSV (*.csv)")
+        if not fn: return
+        try:
+            with open(fn, 'w', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(["Source", "Destination", "Traffic"])
+                for i in self.scene.items():
+                    if isinstance(i, DemandItem):
+                        w.writerow([i.city1.name, i.city2.name, i.traffic])
+            QMessageBox.information(self, "Success", "Demands Exported.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def load_demands(self):
+        # Default to demand2.csv
+        fn, _ = QFileDialog.getOpenFileName(self, "Load Demands", "demand2.csv", "CSV (*.csv)")
+        if not fn: return
+        if not solveur:
+             QMessageBox.critical(self, "Error", "Solver module missing.")
+             return
+        try:
+            for item in list(self.scene.items()):
+                if isinstance(item, DemandItem):
+                    self.scene.removeItem(item)
+
+            demands = solveur.read_demands(fn)
+            for u, v, traffic in demands:
+                c1 = self.find_city(u)
+                c2 = self.find_city(v)
+                self.scene.addItem(DemandItem(c1, c2, traffic))
+
+            QMessageBox.information(self, "Success", "Demands Loaded.")
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
