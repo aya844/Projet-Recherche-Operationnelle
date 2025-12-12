@@ -1,6 +1,0 @@
-Origin,Destination,Capacity,Augmentation_Cost
-B,C,0.0,3.0
-C,D,1.0,2.0
-A,C,3.0,2.0
-B,D,2.0,1.0
-A,B,4.0,1.0
