@@ -1,2 +1,4 @@
 alpha,0.7
 beta,0.3
+vehicle_capacity,1.0
+organs,"kidney, heart"

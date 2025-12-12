@@ -1,0 +1,9 @@
+\ Model Organs_Transport_MILP_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+\ Signature: 0x267ae670d6616f8b
+Minimize
+ 
+Subject To
+ flow_8_kidney: = -1
+Bounds
+End

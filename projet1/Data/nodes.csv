@@ -1,3 +1,9 @@
-id,type,name,supply
-5D,source,bloc opératoire X,1.0
-ght,destination,bloc Y,-1.0
+id,type,name,supply_kidney,supply_heart
+1,source,hopital tunis,2.0,1.0
+2,source,hopital sahloul,1.0,1.0
+3,source,hopital sfax,1.0,0.0
+4,intermediaire,centre X,0.0,0.0
+5,intermediaire,centre Y,0.0,0.0
+6,destination,clinique1,-2.0,-1.0
+7,destination,clinique2,-1.0,-1.0
+8,destination,clinique3,-1.0,0.0

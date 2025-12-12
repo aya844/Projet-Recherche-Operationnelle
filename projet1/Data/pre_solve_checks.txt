@@ -1,0 +1,13 @@
+Pre-solve diagnostics:
+Total supply for kidney: 0.0
+Total supply for heart: 0.0
+
+Node connectivity:
+Node 1: outgoing 2 arcs, incoming 0 arcs
+Node 2: outgoing 2 arcs, incoming 0 arcs
+Node 3: outgoing 1 arcs, incoming 0 arcs
+Node 4: outgoing 2 arcs, incoming 2 arcs
+Node 5: outgoing 2 arcs, incoming 2 arcs
+Node 6: outgoing 0 arcs, incoming 2 arcs
+Node 7: outgoing 0 arcs, incoming 2 arcs
+Node 8: outgoing 0 arcs, incoming 1 arcs

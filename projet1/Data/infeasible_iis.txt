@@ -1,0 +1,4 @@
+Variables in IIS (nonzero indicating membership):
+
+Constraints in IIS:
+CONSTR flow_8_kidney

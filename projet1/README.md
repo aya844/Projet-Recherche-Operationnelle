@@ -38,6 +38,8 @@ L’objectif est de fournir un **outil d’aide à la décision logistique** cap
 ## Fonctionnalités
 
 - Saisie et gestion des nœuds et arcs du réseau (offre/demande, coûts, temps, capacités, coût d’augmentation)
+ - Saisie et gestion des nœuds et arcs du réseau (offre/demande, coûts, temps, capacités, coût d’augmentation)
+ - Support multi-type d'organes (colonnes supply_<organ>, cost_<organ>, time_<organ>) et véhicules entiers achetés (param `vehicle_capacity` + `cap_cost` par véhicule)
 - Définition des paramètres alpha et beta pour pondérer coût et temps
 - Validation des données avant optimisation
 - Résolution de la PL et affichage :

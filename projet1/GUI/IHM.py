@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QHBoxLayout, QGridLayout, QDoubleSpinBox, QApplication, QStatusBar
+    QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QHBoxLayout, QGridLayout, QDoubleSpinBox, QApplication, QStatusBar, QLineEdit
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QBrush
@@ -14,13 +14,16 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Optimisation Transport d'Organes")
         self.resize(900, 600)
 
+        # compute project root relative to this file (stable across CWDs)
+        self.project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout(main_widget)
 
         # --- Nœuds ---
         self.nodes_table = QTableWidget(0, 4)
-        self.nodes_table.setHorizontalHeaderLabels(["ID", "Type", "Nom", "Offre/Demande"])
+        self.nodes_table.setHorizontalHeaderLabels(["id", "type", "name", "supply"])
         layout.addWidget(QLabel("Nœuds"))
         layout.addWidget(self.nodes_table)
         # connect immediate validation handler
@@ -39,7 +42,7 @@ class MainWindow(QMainWindow):
 
         # --- Arcs ---
         self.arcs_table = QTableWidget(0, 6)
-        self.arcs_table.setHorizontalHeaderLabels(["Origine", "Destination", "Coût", "Temps", "Capacité", "Coût Capacité"])
+        self.arcs_table.setHorizontalHeaderLabels(["origin", "dest", "cost", "time", "capacity", "cap_cost"])
         layout.addWidget(QLabel("Arcs"))
         layout.addWidget(self.arcs_table)
         # connect immediate validation handler
@@ -69,6 +72,27 @@ class MainWindow(QMainWindow):
         param_layout.addWidget(self.beta, 1, 1)
 
         layout.addLayout(param_layout)
+
+        # --- Organ types and vehicle capacity ---
+        organ_h = QHBoxLayout()
+        organ_h.addWidget(QLabel('Organ types (comma-separated)'))
+        self.organs_input = QLineEdit()
+        organ_h.addWidget(self.organs_input)
+        btn_set_organs = QPushButton('Set organ types')
+        btn_set_organs.clicked.connect(self.set_organ_types)
+        organ_h.addWidget(btn_set_organs)
+        layout.addLayout(organ_h)
+
+        vc_h = QHBoxLayout()
+        vc_h.addWidget(QLabel('Vehicle capacity (V)'))
+        self.vehicle_capacity = QDoubleSpinBox()
+        self.vehicle_capacity.setDecimals(2)
+        self.vehicle_capacity.setValue(1.0)
+        vc_h.addWidget(self.vehicle_capacity)
+        layout.addLayout(vc_h)
+
+        # default organ list
+        self.organs_list = []
 
         # --- Boutons ---
         btn_save = QPushButton("Enregistrer CSV")
@@ -104,21 +128,26 @@ class MainWindow(QMainWindow):
             return
 
         # Make sure the 'data' folder exists (lowercase is used by the solver)
-        os.makedirs("data", exist_ok=True)
+        data_dir = os.path.join(self.project_root, 'data')
+        os.makedirs(data_dir, exist_ok=True)
         # nodes.csv
-        with open("data/nodes.csv", "w", newline="", encoding='utf-8') as f:
+        with open(os.path.join(data_dir, 'nodes.csv'), "w", newline="", encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(["id", "type", "name", "supply"])
+            # dynamic header
+            if hasattr(self, 'organs_list') and self.organs_list:
+                header = ["id", "type", "name"] + [f"supply_{o}" for o in self.organs_list]
+            else:
+                header = ["id", "type", "name", "supply"]
+            writer.writerow(header)
             for r in range(self.nodes_table.rowCount()):
                 row = []
-                for c in range(4):
+                for c in range(self.nodes_table.columnCount()):
                     item = self.nodes_table.item(r, c)
                     cell_text = item.text() if item else ""
-                    # For the supply column, try to convert French labels to numeric values
-                    if c == 3:  # 'Offre/Demande' column
+                    # For supply columns, attempt to coerce labels to numeric
+                    if header[c].startswith('supply'):
                         val = cell_text.strip()
                         try:
-                            # if numeric - use as is
                             num = float(val)
                         except Exception:
                             low = val.lower()
@@ -128,7 +157,6 @@ class MainWindow(QMainWindow):
                                 num = -1.0
                             else:
                                 try:
-                                    # attempt to parse commas
                                     num = float(val.replace(',',''))
                                 except Exception:
                                     print(f"Warning: unable to parse supply value '{val}' on row {r}; defaulting to 0")
@@ -139,16 +167,21 @@ class MainWindow(QMainWindow):
                 writer.writerow(row)
 
         # arcs.csv
-        with open("data/arcs.csv", "w", newline="", encoding='utf-8') as f:
+        with open(os.path.join(data_dir, 'arcs.csv'), "w", newline="", encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(["origin", "dest", "cost", "time", "capacity", "cap_cost"])
+            base_cols = ["origin", "dest", "cost", "time", "capacity", "cap_cost"]
+            if hasattr(self, 'organs_list') and self.organs_list:
+                header = base_cols + [f"cost_{o}" for o in self.organs_list] + [f"time_{o}" for o in self.organs_list]
+            else:
+                header = base_cols
+            writer.writerow(header)
             for r in range(self.arcs_table.rowCount()):
                 row = []
-                for c in range(6):
+                for c in range(self.arcs_table.columnCount()):
                     item = self.arcs_table.item(r, c)
                     cell_text = item.text() if item else ""
                     # try to convert numeric fields to numbers when possible
-                    if c in (2, 3, 4, 5):  # cost, time, capacity, cap_cost
+                    if header[c] in ("cost", "time", "capacity", "cap_cost") or header[c].startswith('cost_') or header[c].startswith('time_'):
                         try:
                             val = float(cell_text)
                         except Exception:
@@ -162,10 +195,13 @@ class MainWindow(QMainWindow):
                 writer.writerow(row)
 
         # params.csv
-        with open("data/params.csv", "w", newline="", encoding='utf-8') as f:
+        with open(os.path.join(data_dir, 'params.csv'), "w", newline="", encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(["alpha", self.alpha.value()])
             writer.writerow(["beta", self.beta.value()])
+            writer.writerow(["vehicle_capacity", self.vehicle_capacity.value()])
+            organs_val = self.organs_input.text().strip()
+            writer.writerow(["organs", organs_val])
 
         print("CSV sauvegardés.")
 
@@ -219,17 +255,19 @@ class MainWindow(QMainWindow):
             name_val = name_item.text().strip() if name_item else ""
             if not name_val:
                 errors.append(f"Nœuds ligne {r+1} : Nom vide")
-            # Supply: numeric (float) or 'Offre'/'Demande'
-            supply_item = self.nodes_table.item(r, 3)
-            supply_text = supply_item.text().strip() if supply_item else ""
-            if supply_text == "":
-                errors.append(f"Nœuds ligne {r+1} : Offre/Demande vide")
-            else:
-                try:
-                    _ = float(supply_text)
-                except Exception:
-                    if supply_text.lower() not in ("offre", "demande", "o", "d", "supply", "demand"):
-                        errors.append(f"Nœuds ligne {r+1} : Offre/Demande non numérique ou non reconnue: '{supply_text}'")
+            # Supply: numeric (float) or 'Offre'/'Demande' - may be multiple supply columns
+            supply_cols_idx = [i for i in range(self.nodes_table.columnCount()) if self.nodes_table.horizontalHeaderItem(i).text().startswith('supply') or self.nodes_table.horizontalHeaderItem(i).text() == 'Offre/Demande']
+            for idxc in supply_cols_idx:
+                supply_item = self.nodes_table.item(r, idxc)
+                supply_text = supply_item.text().strip() if supply_item else ""
+                if supply_text == "":
+                    errors.append(f"Nœuds ligne {r+1} : Offre/Demande vide (col {idxc})")
+                else:
+                    try:
+                        _ = float(supply_text)
+                    except Exception:
+                        if supply_text.lower() not in ("offre", "demande", "o", "d", "supply", "demand"):
+                            errors.append(f"Nœuds ligne {r+1} : Offre/Demande non numérique ou non reconnue: '{supply_text}'")
 
         # Arcs table checks
         for r in range(self.arcs_table.rowCount()):
@@ -242,13 +280,18 @@ class MainWindow(QMainWindow):
                 errors.append(f"Arcs ligne {r+1} : Origine vide")
             if not dest:
                 errors.append(f"Arcs ligne {r+1} : Destination vide")
-            # numeric columns: cost, time, capacity, cap_cost
-            for c, colname in enumerate(("Coût","Temps","Capacité","Coût Capacité"), start=2):
+            # numeric columns: cost, time, capacity, cap_cost and per-organ cost/time
+            for c in range(self.arcs_table.columnCount()):
+                colname = self.arcs_table.horizontalHeaderItem(c).text()
                 it = self.arcs_table.item(r, c)
                 txt = it.text().strip() if it else ""
                 if txt == "":
                     errors.append(f"Arcs ligne {r+1} : {colname} vide")
                 else:
+                    # allow string columns for origin/dest only
+                    colname_l = colname.lower()
+                    if colname_l in ('origin','origine','dest','destination'):
+                        continue
                     try:
                         _ = float(txt)
                     except Exception:
@@ -270,67 +313,171 @@ class MainWindow(QMainWindow):
         for r in rows:
             table.removeRow(r)
 
+    def set_organ_types(self):
+        """Parse organs_input and rebuild table columns accordingly."""
+        txt = self.organs_input.text().strip()
+        if txt:
+            self.organs_list = [o.strip() for o in txt.split(',') if o.strip()]
+        else:
+            self.organs_list = []
+        self.rebuild_tables_columns()
+
+    def rebuild_tables_columns(self):
+        """Rebuild nodes and arcs tables headers based on self.organs_list."""
+        # Nodes: id,type,name + supplies
+        if self.organs_list:
+            headers = ['id','type','name'] + [f'supply_{o}' for o in self.organs_list]
+        else:
+            headers = ['id','type','name','supply']
+        self.nodes_table.setColumnCount(len(headers))
+        self.nodes_table.setHorizontalHeaderLabels(headers)
+        # Arcs: origin,dest,cost,time,capacity,cap_cost + per organ cost/time
+        base = ['origin','dest','cost','time','capacity','cap_cost']
+        if self.organs_list:
+            extras = []
+            extras += [f'cost_{o}' for o in self.organs_list]
+            extras += [f'time_{o}' for o in self.organs_list]
+            headers_arcs = base + extras
+        else:
+            headers_arcs = base
+        self.arcs_table.setColumnCount(len(headers_arcs))
+        self.arcs_table.setHorizontalHeaderLabels(headers_arcs)
+
     def load_csvs(self):
         """Load CSV files from data/ and populate tables and params."""
         # nodes
-        nodes_path = os.path.join(os.getcwd(), 'data', 'nodes.csv')
-        arcs_path = os.path.join(os.getcwd(), 'data', 'arcs.csv')
-        params_path = os.path.join(os.getcwd(), 'data', 'params.csv')
+        nodes_path = os.path.join(self.project_root, 'data', 'nodes.csv')
+        arcs_path = os.path.join(self.project_root, 'data', 'arcs.csv')
+        params_path = os.path.join(self.project_root, 'data', 'params.csv')
         if os.path.exists(nodes_path):
             try:
                 # avoid triggering validation while populating
                 self.nodes_table.blockSignals(True)
                 self.arcs_table.blockSignals(True)
-                with open(nodes_path, newline='') as f:
-                    reader = csv.DictReader(f)
-                    rows = list(reader)
-                    self.nodes_table.setRowCount(0)
-                    for r, row in enumerate(rows):
-                        self.nodes_table.insertRow(r)
-                        self.nodes_table.setItem(r, 0, QTableWidgetItem(str(row.get('id', ''))))
-                        self.nodes_table.setItem(r, 1, QTableWidgetItem(str(row.get('type', ''))))
-                        self.nodes_table.setItem(r, 2, QTableWidgetItem(str(row.get('name', ''))))
-                        self.nodes_table.setItem(r, 3, QTableWidgetItem(str(row.get('supply', ''))))
+                rows = []
+                try:
+                    with open(nodes_path, newline='', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        rows = list(reader)
+                except UnicodeDecodeError:
+                    with open(nodes_path, newline='', encoding='latin-1') as f:
+                        reader = csv.DictReader(f)
+                        rows = list(reader)
+
+                # detect supply columns
+                header = reader.fieldnames if reader.fieldnames else []
+                supply_cols = [c for c in header if c.startswith('supply_')]
+                if supply_cols:
+                    self.organs_list = [c.replace('supply_','') for c in supply_cols]
+                else:
+                    self.organs_list = []
+                self.rebuild_tables_columns()
+                self.nodes_table.setRowCount(0)
+                for r, row in enumerate(rows):
+                    self.nodes_table.insertRow(r)
+                    for c in range(self.nodes_table.columnCount()):
+                        hdr_item = self.nodes_table.horizontalHeaderItem(c)
+                        col = hdr_item.text() if hdr_item else ''
+                        self.nodes_table.setItem(r, c, QTableWidgetItem(str(row.get(col, ''))))
             except Exception as e:
                 print('Erreur chargement nodes.csv:', e)
             finally:
                 self.nodes_table.blockSignals(False)
         if os.path.exists(arcs_path):
             try:
-                with open(arcs_path, newline='') as f:
-                    reader = csv.DictReader(f)
-                    rows = list(reader)
-                    self.arcs_table.setRowCount(0)
-                    for r, row in enumerate(rows):
-                        self.arcs_table.insertRow(r)
-                        self.arcs_table.setItem(r, 0, QTableWidgetItem(str(row.get('origin', ''))))
-                        self.arcs_table.setItem(r, 1, QTableWidgetItem(str(row.get('dest', ''))))
-                        self.arcs_table.setItem(r, 2, QTableWidgetItem(str(row.get('cost', ''))))
-                        self.arcs_table.setItem(r, 3, QTableWidgetItem(str(row.get('time', ''))))
-                        self.arcs_table.setItem(r, 4, QTableWidgetItem(str(row.get('capacity', ''))))
-                        self.arcs_table.setItem(r, 5, QTableWidgetItem(str(row.get('cap_cost', ''))))
+                rows = []
+                try:
+                    with open(arcs_path, newline='', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        rows = list(reader)
+                except UnicodeDecodeError:
+                    with open(arcs_path, newline='', encoding='latin-1') as f:
+                        reader = csv.DictReader(f)
+                        rows = list(reader)
+                header = reader.fieldnames if reader.fieldnames else []
+                # infer organs from 'cost_<org>' and 'time_<org>' if not already set
+                if not self.organs_list:
+                    cost_orgs = [c.replace('cost_','') for c in header if c.startswith('cost_')]
+                    time_orgs = [c.replace('time_','') for c in header if c.startswith('time_')]
+                    if cost_orgs or time_orgs:
+                        self.organs_list = sorted(set(cost_orgs + time_orgs))
+                self.rebuild_tables_columns()
+                self.arcs_table.setRowCount(0)
+                for r, row in enumerate(rows):
+                    self.arcs_table.insertRow(r)
+                    for c in range(self.arcs_table.columnCount()):
+                        hdr_item = self.arcs_table.horizontalHeaderItem(c)
+                        col = hdr_item.text() if hdr_item else ''
+                        self.arcs_table.setItem(r, c, QTableWidgetItem(str(row.get(col, ''))))
             except Exception as e:
                 print('Erreur chargement arcs.csv:', e)
             finally:
                 self.arcs_table.blockSignals(False)
         if os.path.exists(params_path):
             try:
-                with open(params_path, newline='') as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        if len(row) >= 2:
-                            key = row[0].strip().lower()
-                            val = row[1].strip()
-                            try:
-                                v = float(val)
-                            except Exception:
-                                continue
-                            if key == 'alpha':
-                                self.alpha.setValue(v)
-                            elif key == 'beta':
-                                self.beta.setValue(v)
+                try:
+                    with open(params_path, newline='', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            if len(row) >= 2:
+                                key = row[0].strip().lower()
+                                val = row[1].strip()
+                                try:
+                                    v = float(val)
+                                except Exception:
+                                    continue
+                                if key == 'alpha':
+                                    self.alpha.setValue(v)
+                                elif key == 'beta':
+                                    self.beta.setValue(v)
+                                elif key == 'vehicle_capacity':
+                                    self.vehicle_capacity.setValue(v)
+                except UnicodeDecodeError:
+                    with open(params_path, newline='', encoding='latin-1') as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            if len(row) >= 2:
+                                key = row[0].strip().lower()
+                                val = row[1].strip()
+                                try:
+                                    v = float(val)
+                                except Exception:
+                                    continue
+                                if key == 'alpha':
+                                    self.alpha.setValue(v)
+                                elif key == 'beta':
+                                    self.beta.setValue(v)
+                                elif key == 'vehicle_capacity':
+                                    self.vehicle_capacity.setValue(v)
             except Exception as e:
                 print('Erreur chargement params.csv:', e)
+        # re-read for organs name (string value)
+        if os.path.exists(params_path):
+            try:
+                try:
+                    with open(params_path, newline='', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            if len(row) >= 2 and row[0].strip().lower() == 'organs':
+                                organs_val = row[1].strip()
+                                self.organs_input.setText(organs_val)
+                                if organs_val:
+                                    self.organs_list = [o.strip() for o in organs_val.split(',') if o.strip()]
+                                    self.rebuild_tables_columns()
+                                break
+                except UnicodeDecodeError:
+                    with open(params_path, newline='', encoding='latin-1') as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            if len(row) >= 2 and row[0].strip().lower() == 'organs':
+                                organs_val = row[1].strip()
+                                self.organs_input.setText(organs_val)
+                                if organs_val:
+                                    self.organs_list = [o.strip() for o in organs_val.split(',') if o.strip()]
+                                    self.rebuild_tables_columns()
+                                break
+            except Exception as e:
+                print('Erreur lecture organs dans params.csv:', e)
         # set status message
         self.status.showMessage('CSV chargés')
 
@@ -342,7 +489,7 @@ class MainWindow(QMainWindow):
         self._solver_timer.start()
 
     def _check_solver_status(self):
-        status_file = os.path.join(os.getcwd(), 'data', 'solver_status.txt')
+        status_file = os.path.join(self.project_root, 'data', 'solver_status.txt')
         if not os.path.exists(status_file):
             return
         try:
@@ -427,7 +574,9 @@ class MainWindow(QMainWindow):
                 # restore background
                 item.setBackground(QBrush(QColor('white')))
 
-        if col == 3:
+        # If editing a supply column (may be dynamic index)
+        header = self.nodes_table.horizontalHeaderItem(col).text() if self.nodes_table.horizontalHeaderItem(col) else ''
+        if header.startswith('supply') or header == 'Offre/Demande':
             # Supply must be numeric or one of recognized labels
             allowed = ('offre','demande','o','d','supply','demand')
             if txt == '':
@@ -452,9 +601,10 @@ class MainWindow(QMainWindow):
             return
         col = item.column()
         txt = str(item.text()).strip()
-        # numeric columns: 2(cost), 3(time), 4(capacity), 5(cap_cost)
-        numeric_cols = (2,3,4,5)
-        if col in numeric_cols:
+        # numeric columns: cost,time,capacity,cap_cost or cost_<org>,time_<org>
+        h = self.arcs_table.horizontalHeaderItem(col).text() if self.arcs_table.horizontalHeaderItem(col) else ''
+        h_l = h.lower()
+        if h_l not in ('origin','origine','dest','destination'):
             try:
                 float(txt.replace(',','.'))
                 item.setBackground(QBrush(QColor('white')))

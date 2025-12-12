@@ -8,4 +8,3 @@ origin,dest,cost,time,capacity,cap_cost,cost_kidney,cost_heart,time_kidney,time_
 5,6,6.0,0.6,1.0,6.0,6.0,7.0,0.6,0.6
 2,7,11.0,1.2,0.0,6.0,11.0,13.0,1.2,1.2
 5,8,5.0,0.5,1.0,6.0,5.0,6.0,0.5,0.5
-

@@ -55,10 +55,12 @@ def validate(dirpath='data', fix=False):
         errors.append(f"cannot read arcs.csv: {e}")
         return errors
     # check columns
-    req_nodes = ['id','type','name','supply']
+    # nodes may contain 'supply' or 'supply_<organ>' columns
+    req_nodes = ['id','type','name']
     if not set(req_nodes).issubset(df_nodes.columns):
         errors.append(f"nodes.csv missing columns; expected {req_nodes} got {list(df_nodes.columns)}")
-    req_arcs = ['origin','dest','cost','time','capacity','cap_cost']
+    # arcs may contain generic 'cost'/'time' or per-organ 'cost_<org>'/'time_<org>'
+    req_arcs = ['origin','dest','capacity','cap_cost']
     if not set(req_arcs).issubset(df_arcs.columns):
         errors.append(f"arcs.csv missing columns; expected {req_arcs} got {list(df_arcs.columns)}")
 
@@ -68,27 +70,31 @@ def validate(dirpath='data', fix=False):
             val = str(row.get(col, '')).strip()
             if val == '' or pd.isna(val):
                 errors.append(f"nodes.csv line {idx+1}: {col} empty")
-        # supply numeric
-        try:
-            _ = float(row['supply'])
-        except Exception:
-            s = str(row.get('supply','')).strip().lower()
-            if s in ('offre','o','supply'):
-                if fix:
-                    df_nodes.loc[idx,'supply'] = 1.0
-                else:
-                    errors.append(f"nodes.csv line {idx+1}: supply label '{row.get('supply')}' should be numeric or use --fix")
-            elif s in ('demande','d','demand'):
-                if fix:
-                    df_nodes.loc[idx,'supply'] = -1.0
-                else:
-                    errors.append(f"nodes.csv line {idx+1}: supply label '{row.get('supply')}' should be numeric or use --fix")
-            else:
+        # supply numeric or supply_<org> columns
+        supply_cols = [c for c in df_nodes.columns if c == 'supply' or c.startswith('supply_')]
+        if not supply_cols:
+            errors.append(f"nodes.csv line {idx+1}: no supply or supply_<org> columns found")
+        else:
+            for sc in supply_cols:
                 try:
-                    # attempt to remove thousand separators
-                    df_nodes.loc[idx,'supply'] = float(str(row['supply']).replace(',',''))
+                    _ = float(row[sc])
                 except Exception:
-                    errors.append(f"nodes.csv line {idx+1}: supply not numeric: '{row.get('supply')}'")
+                    s = str(row.get(sc,'')).strip().lower()
+                    if s in ('offre','o','supply'):
+                        if fix:
+                            df_nodes.loc[idx,sc] = 1.0
+                        else:
+                            errors.append(f"nodes.csv line {idx+1}: {sc} label '{row.get(sc)}' should be numeric or use --fix")
+                    elif s in ('demande','d','demand'):
+                        if fix:
+                            df_nodes.loc[idx,sc] = -1.0
+                        else:
+                            errors.append(f"nodes.csv line {idx+1}: {sc} label '{row.get(sc)}' should be numeric or use --fix")
+                    else:
+                        try:
+                            df_nodes.loc[idx,sc] = float(str(row[sc]).replace(',',''))
+                        except Exception:
+                            errors.append(f"nodes.csv line {idx+1}: {sc} not numeric: '{row.get(sc)}'")
 
     # arcs rows
     for idx, row in df_arcs.iterrows():
@@ -96,7 +102,10 @@ def validate(dirpath='data', fix=False):
             val = str(row.get(col, '')).strip()
             if val == '' or pd.isna(val):
                 errors.append(f"arcs.csv line {idx+1}: {col} empty")
-        for col in ['cost','time','capacity','cap_cost']:
+        # numeric columns may be generic or per-organ
+        numeric_cols = ['cost','time','capacity','cap_cost']
+        numeric_cols += [c for c in df_arcs.columns if c.startswith('cost_') or c.startswith('time_')]
+        for col in numeric_cols:
             try:
                 _ = float(row[col])
             except Exception:
